@@ -1,23 +1,19 @@
-module zebi-blockchain-application
+module github.com/zebi/nft
 
-go 1.12
+go 1.15
 
 require (
-	github.com/cosmos/cosmos-sdk v0.28.2-0.20190616100639-18415eedaf25
-	github.com/cosmos/go-bip39 v0.0.0-20180618194314-52158e4697b8
-	github.com/fatih/color v1.7.0 // indirect
-	github.com/gorilla/mux v1.7.0
-	github.com/mattn/go-colorable v0.1.2 // indirect
-	github.com/prometheus/procfs v0.0.0-20190328153300-af7bedc223fb // indirect
+	github.com/cosmos/cosmos-sdk v0.39.2
+	github.com/cosmos/modules/incubator/nft v0.0.0-20200715075539-8c1862235a75
+	github.com/golang/mock v1.4.3 // indirect
+	github.com/gorilla/mux v1.7.4
+	github.com/onsi/ginkgo v1.8.0 // indirect
+	github.com/onsi/gomega v1.5.0 // indirect
 	github.com/spf13/afero v1.2.2 // indirect
-	github.com/spf13/cobra v0.0.5
-	github.com/spf13/viper v1.3.2
-	github.com/syndtr/goleveldb v1.0.0 // indirect
-	github.com/tendermint/go-amino v0.15.0
-	github.com/tendermint/tendermint v0.31.5
-	golang.org/x/sys v0.0.0-20190329044733-9eb1bfa1ce65 // indirect
-	google.golang.org/genproto v0.0.0-20190327125643-d831d65fe17d // indirect
-	google.golang.org/grpc v1.19.1 // indirect
+	github.com/spf13/cobra v1.0.0
+	github.com/spf13/viper v1.7.0
+	github.com/stretchr/testify v1.6.1
+	github.com/tendermint/go-amino v0.15.1
+	github.com/tendermint/tendermint v0.33.9
+	github.com/tendermint/tm-db v0.5.1
 )
-
-replace golang.org/x/crypto => github.com/tendermint/crypto v0.0.0-20180820045704-3764759f34a5
