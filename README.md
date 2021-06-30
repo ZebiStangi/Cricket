@@ -1,2 +1,0 @@
-# CricketCrazy
-CricketCrazy Application Repo

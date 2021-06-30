@@ -7,9 +7,8 @@ import (
 // NFT non fungible token interface
 type NFT interface {
 	GetID() string
+	GetName() string
 	GetOwner() sdk.AccAddress
-	SetOwner(address sdk.AccAddress)
-	GetTokenURI() string
-	EditMetadata(tokenURI string)
-	String() string
+	GetURI() string
+	GetData() string
 }

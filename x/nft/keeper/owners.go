@@ -1,130 +1,90 @@
 package keeper
 
 import (
-	"fmt"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/zebi/nft/x/nft/types"
+
+	"github.com/zebi/cric/x/nft/types"
 )
 
-// GetOwners returns all the Owners ID Collections
-func (k Keeper) GetOwners(ctx sdk.Context) (owners []types.Owner) {
-	var foundOwners = make(map[string]bool)
-	k.IterateOwners(ctx,
-		func(owner types.Owner) (stop bool) {
-			if _, ok := foundOwners[owner.Address.String()]; !ok {
-				foundOwners[owner.Address.String()] = true
-				owners = append(owners, owner)
-			}
-			return false
-		},
-	)
-	return
-}
-
-// GetOwner gets all the ID Collections owned by an address
-func (k Keeper) GetOwner(ctx sdk.Context, address sdk.AccAddress) (owner types.Owner) {
-	var idCollections []types.IDCollection
-	k.IterateIDCollections(ctx, types.GetOwnersKey(address),
-		func(_ sdk.AccAddress, idCollection types.IDCollection) (stop bool) {
-			idCollections = append(idCollections, idCollection)
-			return false
-		},
-	)
-	return types.NewOwner(address, idCollections...)
-}
-
-// GetOwnerByDenom gets the ID Collection owned by an address of a specific denom
-func (k Keeper) GetOwnerByDenom(ctx sdk.Context, owner sdk.AccAddress, denom string) (idCollection types.IDCollection, found bool) {
+// GetOwner gets all the ID collections owned by an address and denom ID
+func (k Keeper) GetOwner(ctx sdk.Context, address sdk.AccAddress, denom string) types.Owner {
 	store := ctx.KVStore(k.storeKey)
-	b := store.Get(types.GetOwnerKey(owner, denom))
-	if b == nil {
-		return types.NewIDCollection(denom, []string{}), false
-	}
-	k.cdc.MustUnmarshalBinaryLengthPrefixed(b, &idCollection)
-	return idCollection, true
-}
-
-// SetOwnerByDenom sets a collection of NFT IDs owned by an address
-func (k Keeper) SetOwnerByDenom(ctx sdk.Context, owner sdk.AccAddress, denom string, ids []string) {
-	store := ctx.KVStore(k.storeKey)
-	key := types.GetOwnerKey(owner, denom)
-
-	var idCollection types.IDCollection
-	idCollection.Denom = denom
-	idCollection.IDs = ids
-
-	store.Set(key, k.cdc.MustMarshalBinaryLengthPrefixed(idCollection))
-}
-
-// SetOwner sets an entire Owner
-func (k Keeper) SetOwner(ctx sdk.Context, owner types.Owner) {
-	for _, idCollection := range owner.IDCollections {
-		k.SetOwnerByDenom(ctx, owner.Address, idCollection.Denom, idCollection.IDs)
-	}
-}
-
-// SetOwners sets all Owners
-func (k Keeper) SetOwners(ctx sdk.Context, owners []types.Owner) {
-	for _, owner := range owners {
-		k.SetOwner(ctx, owner)
-	}
-}
-
-// IterateIDCollections iterates over the IDCollections by Owner and performs a function
-func (k Keeper) IterateIDCollections(ctx sdk.Context, prefix []byte,
-	handler func(owner sdk.AccAddress, idCollection types.IDCollection) (stop bool)) {
-	store := ctx.KVStore(k.storeKey)
-	iterator := sdk.KVStorePrefixIterator(store, prefix)
+	iterator := sdk.KVStorePrefixIterator(store, types.KeyOwner(address, denom, ""))
 	defer iterator.Close()
-	for ; iterator.Valid(); iterator.Next() {
-		var idCollection types.IDCollection
-		k.cdc.MustUnmarshalBinaryLengthPrefixed(iterator.Value(), &idCollection)
 
-		owner, _ := types.SplitOwnerKey(iterator.Key())
-		if handler(owner, idCollection) {
-			break
+	owner := types.Owner{
+		Address:       address.String(),
+		IDCollections: types.IDCollections{},
+	}
+	idsMap := make(map[string][]string)
+
+	for ; iterator.Valid(); iterator.Next() {
+		_, denomID, tokenID, _ := types.SplitKeyOwner(iterator.Key())
+		if ids, ok := idsMap[denomID]; ok {
+			idsMap[denomID] = append(ids, tokenID)
+		} else {
+			idsMap[denomID] = []string{tokenID}
+			owner.IDCollections = append(
+				owner.IDCollections,
+				types.IDCollection{DenomId: denomID},
+			)
 		}
 	}
+
+	for i := 0; i < len(owner.IDCollections); i++ {
+		owner.IDCollections[i].TokenIds = idsMap[owner.IDCollections[i].DenomId]
+	}
+
+	return owner
 }
 
-// IterateOwners iterates over all Owners and performs a function
-func (k Keeper) IterateOwners(ctx sdk.Context, handler func(owner types.Owner) (stop bool)) {
+// GetOwners gets all the ID collections
+func (k Keeper) GetOwners(ctx sdk.Context) (owners types.Owners) {
 	store := ctx.KVStore(k.storeKey)
-	iterator := sdk.KVStorePrefixIterator(store, types.OwnersKeyPrefix)
+	iterator := sdk.KVStoreReversePrefixIterator(store, types.KeyOwner(nil, "", ""))
 	defer iterator.Close()
+
+	idcsMap := make(map[string]types.IDCollections)
 	for ; iterator.Valid(); iterator.Next() {
-		var owner types.Owner
-
-		address, _ := types.SplitOwnerKey(iterator.Key())
-		owner = k.GetOwner(ctx, address)
-
-		if handler(owner) {
-			break
+		key := iterator.Key()
+		address, denom, id, _ := types.SplitKeyOwner(key)
+		if _, ok := idcsMap[address.String()]; !ok {
+			idcsMap[address.String()] = types.IDCollections{}
+			owners = append(
+				owners,
+				types.Owner{Address: address.String()},
+			)
 		}
+		idcs := idcsMap[address.String()]
+		idcs = idcs.Add(denom, id)
+		idcsMap[address.String()] = idcs
 	}
+	for i, owner := range owners {
+		owners[i].IDCollections = idcsMap[owner.Address]
+	}
+
+	return owners
 }
 
-// SwapOwners swaps the owners of a NFT ID
-func (k Keeper) SwapOwners(ctx sdk.Context, denom string, id string, oldAddress sdk.AccAddress, newAddress sdk.AccAddress) (err error) {
-	oldOwnerIDCollection, found := k.GetOwnerByDenom(ctx, oldAddress, denom)
-	if !found {
-		return sdkerrors.Wrap(types.ErrUnknownCollection,
-			fmt.Sprintf("id collection %s doesn't exist for owner %s", denom, oldAddress),
-		)
-	}
-	oldOwnerIDCollection, err = oldOwnerIDCollection.DeleteID(id)
-	if err != nil {
-		return err
-	}
-	k.SetOwnerByDenom(ctx, oldAddress, denom, oldOwnerIDCollection.IDs)
+func (k Keeper) deleteOwner(ctx sdk.Context, denomID, tokenID string, owner sdk.AccAddress) {
+	store := ctx.KVStore(k.storeKey)
+	store.Delete(types.KeyOwner(owner, denomID, tokenID))
+}
 
-	newOwnerIDCollection, found := k.GetOwnerByDenom(ctx, newAddress, denom)
-	if !found {
-		newOwnerIDCollection = types.NewIDCollection(denom, []string{})
-	}
-	newOwnerIDCollection = newOwnerIDCollection.AddID(id)
-	k.SetOwnerByDenom(ctx, newAddress, denom, newOwnerIDCollection.IDs)
-	return nil
+func (k Keeper) setOwner(ctx sdk.Context,
+	denomID, tokenID string,
+	owner sdk.AccAddress) {
+	store := ctx.KVStore(k.storeKey)
+
+	bz := types.MustMarshalTokenID(k.cdc, tokenID)
+	store.Set(types.KeyOwner(owner, denomID, tokenID), bz)
+}
+
+func (k Keeper) swapOwner(ctx sdk.Context, denomID, tokenID string, srcOwner, dstOwner sdk.AccAddress) {
+
+	//delete old owner key
+	k.deleteOwner(ctx, denomID, tokenID, srcOwner)
+
+	//set new owner key
+	k.setOwner(ctx, denomID, tokenID, dstOwner)
 }

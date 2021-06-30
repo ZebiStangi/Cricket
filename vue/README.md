@@ -1,8 +1,8 @@
-# nft UI
+# cric UI
 
-This is the [vuejs](https://vuejs.org/) user inteface to nft.
+This is the [vuejs](https://vuejs.org/) user interface to cric.
 
-It provides UI components including login, and a template for you to do additonal development.
+The vue.js framework for building your user interface helps with rapid app development. The framework provides UI components including a login and an HTML-based template.
 
 ## Project setup
 

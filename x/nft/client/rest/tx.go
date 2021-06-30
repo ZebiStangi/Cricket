@@ -1,56 +1,36 @@
 package rest
 
 import (
+	"fmt"
 	"net/http"
 
-	"github.com/cosmos/cosmos-sdk/client/context"
-	"github.com/cosmos/cosmos-sdk/codec"
+	"github.com/gorilla/mux"
+
+	"github.com/cosmos/cosmos-sdk/client"
+	"github.com/cosmos/cosmos-sdk/client/tx"
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	"github.com/cosmos/cosmos-sdk/types/rest"
-	"github.com/cosmos/cosmos-sdk/x/auth/client/utils"
-	"github.com/zebi/nft/x/nft/types"
 
-	"github.com/gorilla/mux"
+	"github.com/zebi/cric/x/nft/types"
 )
 
-func registerTxRoutes(cliCtx context.CLIContext, r *mux.Router,
-	cdc *codec.Codec, queryRoute string) {
-	// Transfer an NFT to an address
-	r.HandleFunc(
-		"/nfts/transfer",
-		transferNFTHandler(cdc, cliCtx),
-	).Methods("POST")
-
-	// Update an NFT metadata
-	r.HandleFunc(
-		"/nfts/collection/{denom}/nft/{id}/metadata",
-		editNFTMetadataHandler(cdc, cliCtx),
-	).Methods("PUT")
-
+func registerTxRoutes(cliCtx client.Context, r *mux.Router, queryRoute string) {
+	// Issue a denom
+	r.HandleFunc("/nft/nfts/denoms/issue", issueDenomHandlerFn(cliCtx)).Methods("POST")
 	// Mint an NFT
-	r.HandleFunc(
-		"/nfts/mint",
-		mintNFTHandler(cdc, cliCtx),
-	).Methods("POST")
-
+	r.HandleFunc("/nft/nfts/mint", mintNFTHandlerFn(cliCtx)).Methods("POST")
+	// Update an NFT
+	r.HandleFunc(fmt.Sprintf("/nft/nfts/{%s}/{%s}", RestParamDenomID, RestParamTokenID), editNFTHandlerFn(cliCtx)).Methods("PUT")
+	// Transfer an NFT to an address
+	r.HandleFunc(fmt.Sprintf("/nft/nfts/{%s}/{%s}/transfer", RestParamDenomID, RestParamTokenID), transferNFTHandlerFn(cliCtx)).Methods("POST")
 	// Burn an NFT
-	r.HandleFunc(
-		"/nfts/collection/{denom}/nft/{id}/burn",
-		burnNFTHandler(cdc, cliCtx),
-	).Methods("PUT")
+	r.HandleFunc(fmt.Sprintf("/nft/nfts/{%s}/{%s}/burn", RestParamDenomID, RestParamTokenID), burnNFTHandlerFn(cliCtx)).Methods("POST")
 }
 
-type transferNFTReq struct {
-	BaseReq   rest.BaseReq `json:"base_req"`
-	Denom     string       `json:"denom"`
-	ID        string       `json:"id"`
-	Recipient string       `json:"recipient"`
-}
-
-func transferNFTHandler(cdc *codec.Codec, cliCtx context.CLIContext) http.HandlerFunc {
+func issueDenomHandlerFn(cliCtx client.Context) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var req transferNFTReq
-		if !rest.ReadRESTReq(w, r, cdc, &req) {
+		var req issueDenomReq
+		if !rest.ReadRESTReq(w, r, cliCtx.LegacyAmino, &req) {
 			rest.WriteErrorResponse(w, http.StatusBadRequest, "failed to parse request")
 			return
 		}
@@ -59,69 +39,20 @@ func transferNFTHandler(cdc *codec.Codec, cliCtx context.CLIContext) http.Handle
 			return
 		}
 
-		fromAddr, err := sdk.AccAddressFromBech32(req.BaseReq.From)
-		if err != nil {
-			rest.WriteErrorResponse(w, http.StatusBadRequest, err.Error())
-			return
-		}
-
-		recipient, err := sdk.AccAddressFromBech32(req.Recipient)
-		if err != nil {
-			rest.WriteErrorResponse(w, http.StatusBadRequest, err.Error())
-			return
-		}
-
 		// create the message
-		msg := types.NewMsgTransferNFT(fromAddr, recipient, req.Denom, req.ID)
-
-		utils.WriteGenerateStdTxResponse(w, cliCtx, baseReq, []sdk.Msg{msg})
+		msg := types.NewMsgIssueDenom(req.ID, req.Name, req.Schema, req.Owner)
+		if err := msg.ValidateBasic(); err != nil {
+			rest.WriteErrorResponse(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		tx.WriteGeneratedTxResponse(cliCtx, w, req.BaseReq, msg)
 	}
 }
 
-type editNFTMetadataReq struct {
-	BaseReq  rest.BaseReq `json:"base_req"`
-	Denom    string       `json:"denom"`
-	ID       string       `json:"id"`
-	TokenURI string       `json:"tokenURI"`
-}
-
-func editNFTMetadataHandler(cdc *codec.Codec, cliCtx context.CLIContext) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		var req editNFTMetadataReq
-		if !rest.ReadRESTReq(w, r, cdc, &req) {
-			rest.WriteErrorResponse(w, http.StatusBadRequest, "failed to parse request")
-			return
-		}
-		baseReq := req.BaseReq.Sanitize()
-		if !baseReq.ValidateBasic(w) {
-			return
-		}
-
-		fromAddr, err := sdk.AccAddressFromBech32(req.BaseReq.From)
-		if err != nil {
-			rest.WriteErrorResponse(w, http.StatusBadRequest, err.Error())
-			return
-		}
-
-		// create the message
-		msg := types.NewMsgEditNFTMetadata(fromAddr, req.ID, req.Denom, req.TokenURI)
-
-		utils.WriteGenerateStdTxResponse(w, cliCtx, baseReq, []sdk.Msg{msg})
-	}
-}
-
-type mintNFTReq struct {
-	BaseReq   rest.BaseReq   `json:"base_req"`
-	Recipient sdk.AccAddress `json:"recipient"`
-	Denom     string         `json:"denom"`
-	ID        string         `json:"id"`
-	TokenURI  string         `json:"tokenURI"`
-}
-
-func mintNFTHandler(cdc *codec.Codec, cliCtx context.CLIContext) http.HandlerFunc {
+func mintNFTHandlerFn(cliCtx client.Context) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req mintNFTReq
-		if !rest.ReadRESTReq(w, r, cdc, &req) {
+		if !rest.ReadRESTReq(w, r, cliCtx.LegacyAmino, &req) {
 			rest.WriteErrorResponse(w, http.StatusBadRequest, "failed to parse request")
 			return
 		}
@@ -130,29 +61,31 @@ func mintNFTHandler(cdc *codec.Codec, cliCtx context.CLIContext) http.HandlerFun
 			return
 		}
 
-		fromAddr, err := sdk.AccAddressFromBech32(req.BaseReq.From)
-		if err != nil {
+		if req.Recipient == "" {
+			req.Recipient = req.Owner
+		}
+		// create the message
+		msg := types.NewMsgMintNFT(
+			req.ID,
+			req.DenomID,
+			req.Name,
+			req.URI,
+			req.Data,
+			req.Owner,
+			req.Recipient,
+		)
+		if err := msg.ValidateBasic(); err != nil {
 			rest.WriteErrorResponse(w, http.StatusBadRequest, err.Error())
 			return
 		}
-
-		// create the message
-		msg := types.NewMsgMintNFT(fromAddr, req.Recipient, req.ID, req.Denom, req.TokenURI)
-
-		utils.WriteGenerateStdTxResponse(w, cliCtx, baseReq, []sdk.Msg{msg})
+		tx.WriteGeneratedTxResponse(cliCtx, w, req.BaseReq, msg)
 	}
 }
 
-type burnNFTReq struct {
-	BaseReq rest.BaseReq `json:"base_req"`
-	Denom   string       `json:"denom"`
-	ID      string       `json:"id"`
-}
-
-func burnNFTHandler(cdc *codec.Codec, cliCtx context.CLIContext) http.HandlerFunc {
+func editNFTHandlerFn(cliCtx client.Context) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var req burnNFTReq
-		if !rest.ReadRESTReq(w, r, cdc, &req) {
+		var req editNFTReq
+		if !rest.ReadRESTReq(w, r, cliCtx.LegacyAmino, &req) {
 			rest.WriteErrorResponse(w, http.StatusBadRequest, "failed to parse request")
 			return
 		}
@@ -161,14 +94,82 @@ func burnNFTHandler(cdc *codec.Codec, cliCtx context.CLIContext) http.HandlerFun
 			return
 		}
 
-		fromAddr, err := sdk.AccAddressFromBech32(req.BaseReq.From)
-		if err != nil {
+		vars := mux.Vars(r)
+		// create the message
+		msg := types.NewMsgEditNFT(
+			vars[RestParamTokenID],
+			vars[RestParamDenomID],
+			req.Name,
+			req.URI,
+			req.Data, req.Owner,
+		)
+		if err := msg.ValidateBasic(); err != nil {
+			rest.WriteErrorResponse(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		tx.WriteGeneratedTxResponse(cliCtx, w, req.BaseReq, msg)
+	}
+}
+
+func transferNFTHandlerFn(cliCtx client.Context) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req transferNFTReq
+		if !rest.ReadRESTReq(w, r, cliCtx.LegacyAmino, &req) {
+			rest.WriteErrorResponse(w, http.StatusBadRequest, "failed to parse request")
+			return
+		}
+		baseReq := req.BaseReq.Sanitize()
+		if !baseReq.ValidateBasic(w) {
+			return
+		}
+		if _, err := sdk.AccAddressFromBech32(req.Recipient); err != nil {
 			rest.WriteErrorResponse(w, http.StatusBadRequest, err.Error())
 			return
 		}
 
+		vars := mux.Vars(r)
 		// create the message
-		msg := types.NewMsgBurnNFT(fromAddr, req.ID, req.Denom)
-		utils.WriteGenerateStdTxResponse(w, cliCtx, baseReq, []sdk.Msg{msg})
+		msg := types.NewMsgTransferNFT(
+			vars[RestParamTokenID],
+			vars[RestParamDenomID],
+			req.Name,
+			req.URI,
+			req.Data,
+			req.Owner,
+			req.Recipient,
+		)
+		if err := msg.ValidateBasic(); err != nil {
+			rest.WriteErrorResponse(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		tx.WriteGeneratedTxResponse(cliCtx, w, req.BaseReq, msg)
+	}
+}
+
+func burnNFTHandlerFn(cliCtx client.Context) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var req burnNFTReq
+		if !rest.ReadRESTReq(w, r, cliCtx.LegacyAmino, &req) {
+			rest.WriteErrorResponse(w, http.StatusBadRequest, "failed to parse request")
+			return
+		}
+		baseReq := req.BaseReq.Sanitize()
+		if !baseReq.ValidateBasic(w) {
+			return
+		}
+
+		vars := mux.Vars(r)
+
+		// create the message
+		msg := types.NewMsgBurnNFT(
+			req.Owner,
+			vars[RestParamTokenID],
+			vars[RestParamDenomID],
+		)
+		if err := msg.ValidateBasic(); err != nil {
+			rest.WriteErrorResponse(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		tx.WriteGeneratedTxResponse(cliCtx, w, req.BaseReq, msg)
 	}
 }

@@ -1,107 +1,73 @@
 package keeper
 
 import (
-	"fmt"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
 	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/zebi/nft/x/nft/exported"
-	"github.com/zebi/nft/x/nft/types"
+
+	"github.com/zebi/cric/x/nft/exported"
+	"github.com/zebi/cric/x/nft/types"
 )
 
-// IsNFT returns whether an NFT exists
-func (k Keeper) IsNFT(ctx sdk.Context, denom, id string) (exists bool) {
-	_, err := k.GetNFT(ctx, denom, id)
-	return err == nil
+// GetNFT gets the the specified NFT
+func (k Keeper) GetNFT(ctx sdk.Context, denomID, tokenID string) (nft exported.NFT, err error) {
+	store := ctx.KVStore(k.storeKey)
+
+	bz := store.Get(types.KeyNFT(denomID, tokenID))
+	if bz == nil {
+		return nil, sdkerrors.Wrapf(types.ErrUnknownCollection, "not found NFT: %s", denomID)
+	}
+
+	var baseNFT types.BaseNFT
+	k.cdc.MustUnmarshalBinaryBare(bz, &baseNFT)
+
+	return baseNFT, nil
 }
 
-// GetNFT gets the entire NFT metadata struct for a uint64
-func (k Keeper) GetNFT(ctx sdk.Context, denom, id string) (nft exported.NFT, err error) {
-	collection, found := k.GetCollection(ctx, denom)
-	if !found {
-		return nil, sdkerrors.Wrap(types.ErrUnknownCollection, fmt.Sprintf("collection of %s doesn't exist", denom))
-	}
-	nft, err = collection.GetNFT(id)
+// GetNFTs returns all NFTs by the specified denom ID
+func (k Keeper) GetNFTs(ctx sdk.Context, denom string) (nfts []exported.NFT) {
+	store := ctx.KVStore(k.storeKey)
 
-	if err != nil {
-		return nil, err
+	iterator := sdk.KVStorePrefixIterator(store, types.KeyNFT(denom, ""))
+	defer iterator.Close()
+	for ; iterator.Valid(); iterator.Next() {
+		var baseNFT types.BaseNFT
+		k.cdc.MustUnmarshalBinaryBare(iterator.Value(), &baseNFT)
+		nfts = append(nfts, baseNFT)
 	}
-	return nft, err
+
+	return nfts
 }
 
-// UpdateNFT updates an already existing NFTs
-func (k Keeper) UpdateNFT(ctx sdk.Context, denom string, nft exported.NFT) (err error) {
-	collection, found := k.GetCollection(ctx, denom)
-	if !found {
-		return sdkerrors.Wrap(types.ErrUnknownCollection, fmt.Sprintf("collection #%s doesn't exist", denom))
-	}
-	oldNFT, err := collection.GetNFT(nft.GetID())
+// Authorize checks if the sender is the owner of the given NFT
+// Return the NFT if true, an error otherwise
+func (k Keeper) Authorize(ctx sdk.Context, denomID, tokenID string, owner sdk.AccAddress) (types.BaseNFT, error) {
+	nft, err := k.GetNFT(ctx, denomID, tokenID)
 	if err != nil {
-		return err
+		return types.BaseNFT{}, err
 	}
-	// if the owner changed then update the owners KVStore too
-	if !oldNFT.GetOwner().Equals(nft.GetOwner()) {
-		err = k.SwapOwners(ctx, denom, nft.GetID(), oldNFT.GetOwner(), nft.GetOwner())
-		if err != nil {
-			return err
-		}
-	}
-	collection, err = collection.UpdateNFT(nft)
 
-	if err != nil {
-		return err
+	if !owner.Equals(nft.GetOwner()) {
+		return types.BaseNFT{}, sdkerrors.Wrap(types.ErrUnauthorized, owner.String())
 	}
-	k.SetCollection(ctx, denom, collection)
-	return nil
+
+	return nft.(types.BaseNFT), nil
 }
 
-// MintNFT mints an NFT and manages that NFTs existence within Collections and Owners
-func (k Keeper) MintNFT(ctx sdk.Context, denom string, nft exported.NFT) (err error) {
-	collection, found := k.GetCollection(ctx, denom)
-	if found {
-		collection, err = collection.AddNFT(nft)
-		if err != nil {
-			return err
-		}
-	} else {
-		collection = types.NewCollection(denom, types.NewNFTs(nft))
-	}
-	k.SetCollection(ctx, denom, collection)
-
-	ownerIDCollection, _ := k.GetOwnerByDenom(ctx, nft.GetOwner(), denom)
-	ownerIDCollection = ownerIDCollection.AddID(nft.GetID())
-	k.SetOwnerByDenom(ctx, nft.GetOwner(), denom, ownerIDCollection.IDs)
-	return
+// HasNFT checks if the specified NFT exists
+func (k Keeper) HasNFT(ctx sdk.Context, denomID, tokenID string) bool {
+	store := ctx.KVStore(k.storeKey)
+	return store.Has(types.KeyNFT(denomID, tokenID))
 }
 
-// DeleteNFT deletes an existing NFT from store
-func (k Keeper) DeleteNFT(ctx sdk.Context, denom, id string) (err error) {
-	collection, found := k.GetCollection(ctx, denom)
-	if !found {
-		return sdkerrors.Wrap(types.ErrUnknownCollection, fmt.Sprintf("collection of %s doesn't exist", denom))
-	}
-	nft, err := collection.GetNFT(id)
-	if err != nil {
-		return err
-	}
-	ownerIDCollection, found := k.GetOwnerByDenom(ctx, nft.GetOwner(), denom)
-	if !found {
-		return sdkerrors.Wrap(types.ErrUnknownCollection,
-			fmt.Sprintf("id collection #%s doesn't exist for owner %s", denom, nft.GetOwner()),
-		)
-	}
-	ownerIDCollection, err = ownerIDCollection.DeleteID(nft.GetID())
-	if err != nil {
-		return err
-	}
-	k.SetOwnerByDenom(ctx, nft.GetOwner(), denom, ownerIDCollection.IDs)
+func (k Keeper) setNFT(ctx sdk.Context, denomID string, nft types.BaseNFT) {
+	store := ctx.KVStore(k.storeKey)
 
-	collection, err = collection.DeleteNFT(nft)
-	if err != nil {
-		return err
-	}
+	bz := k.cdc.MustMarshalBinaryBare(&nft)
+	store.Set(types.KeyNFT(denomID, nft.GetID()), bz)
+}
 
-	k.SetCollection(ctx, denom, collection)
-
-	return
+// deleteNFT deletes an existing NFT from store
+func (k Keeper) deleteNFT(ctx sdk.Context, denomID string, nft exported.NFT) {
+	store := ctx.KVStore(k.storeKey)
+	store.Delete(types.KeyNFT(denomID, nft.GetID()))
 }

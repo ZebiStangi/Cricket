@@ -2,28 +2,47 @@ package nft
 
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	"github.com/zebi/nft/x/nft/keeper"
-	"github.com/zebi/nft/x/nft/types"
-	// abci "github.com/tendermint/tendermint/abci/types"
+	"github.com/zebi/cric/x/nft/keeper"
+	"github.com/zebi/cric/x/nft/types"
 )
 
-// InitGenesis initialize default parameters
-// and the keeper's address to pubkey map
+// InitGenesis initializes the capability module's state from a provided genesis
+// state.
+func InitGenesis(ctx sdk.Context, k keeper.Keeper, genState types.GenesisState) {
+	// this line is used by starport scaffolding # genesis/module/init
 
-func InitGenesis(ctx sdk.Context, k keeper.Keeper /* TODO: Define what keepers the module needs */, data types.GenesisState) {
-	// TODO: Define logic for when you would like to initalize a new genesis
-	k.SetOwners(ctx, data.Owners)
+	// this line is used by starport scaffolding # ibc/genesis/init
+	if err := types.ValidateGenesis(genState); err != nil {
+		panic(err.Error())
+	}
 
-	for _, c := range data.Collections {
-		sortedCollection := NewCollection(c.Denom, c.NFTs.Sort())
-		k.SetCollection(ctx, c.Denom, sortedCollection)
+	for _, c := range genState.Collections {
+		if err := k.SetDenom(ctx, c.Denom); err != nil {
+			panic(err)
+		}
+		if err := k.SetCollection(ctx, c); err != nil {
+			panic(err)
+		}
 	}
 }
 
-// ExportGenesis writes the current store values
-// to a genesis file, which can be imported again
-// with InitGenesis
-func ExportGenesis(ctx sdk.Context, k keeper.Keeper) (data types.GenesisState) {
-	// TODO: Define logic for exporting state
-	return types.NewGenesisState(k.GetOwners(ctx), k.GetCollections(ctx))
+// ExportGenesis returns the capability module's exported genesis.
+// func ExportGenesis(ctx sdk.Context, k keeper.Keeper) *types.GenesisState {
+// 	genesis := types.DefaultGenesis()
+
+// 	// this line is used by starport scaffolding # genesis/module/export
+
+// 	// this line is used by starport scaffolding # ibc/genesis/export
+
+// 	return genesis
+// }
+
+// ExportGenesis returns a GenesisState for a given context and keeper.
+func ExportGenesis(ctx sdk.Context, k keeper.Keeper) *types.GenesisState {
+	return types.NewGenesisState(k.GetCollections(ctx))
+}
+
+// DefaultGenesisState returns a default genesis state
+func DefaultGenesisState() *types.GenesisState {
+	return types.NewGenesisState([]types.Collection{})
 }

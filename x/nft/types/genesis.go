@@ -1,39 +1,54 @@
 package types
 
-import sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+import (
+	// this line is used by starport scaffolding # genesis/types/import
+	// this line is used by starport scaffolding # ibc/genesistype/import
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+)
 
-// GenesisState - all nft state that must be provided at genesis
-type GenesisState struct {
-	Owners      []Owner     `json:"owners"`
-	Collections Collections `json:"collections"`
-}
+// DefaultIndex is the default capability global index
+const DefaultIndex uint64 = 1
 
-// NewGenesisState creates a new GenesisState object
-func NewGenesisState(owners []Owner, collections Collections) GenesisState {
-	return GenesisState{
-		// TODO: Fill out according to your genesis state
-		Owners:      owners,
+// DefaultGenesis returns the default Capability genesis state
+// func DefaultGenesis() *GenesisState {
+// 	return &GenesisState{
+// 		// this line is used by starport scaffolding # ibc/genesistype/default
+// 		// this line is used by starport scaffolding # genesis/types/default
+// 	}
+// }
+func NewGenesisState(collections []Collection) *GenesisState {
+	return &GenesisState{
 		Collections: collections,
 	}
 }
 
-// DefaultGenesisState - default GenesisState used by Cosmos Hub
-// func DefaultGenesisState() GenesisState {
-// 	return GenesisState{
-// 		// TODO: Fill out according to your genesis state, these values will be initialized but empty
-// 	}
+// Validate performs basic genesis state validation returning an error upon any
+// failure.
+// func (gs GenesisState) Validate() error {
+// 	// this line is used by starport scaffolding # ibc/genesistype/validate
+
+// 	// this line is used by starport scaffolding # genesis/types/validate
+
+// 	return nil
 // }
-
-func DefaultGenesisState() GenesisState {
-	return NewGenesisState([]Owner{}, NewCollections())
-}
-
-// ValidateGenesis validates the nft genesis parameters
 func ValidateGenesis(data GenesisState) error {
-	// TODO: Create a sanity check to make sure the state conforms to the modules needs
-	for _, Owner := range data.Owners {
-		if Owner.Address.Empty() {
-			return sdkerrors.Wrap(sdkerrors.ErrInvalidAddress, "address cannot be empty")
+	for _, c := range data.Collections {
+		if err := ValidateDenomID(c.Denom.Name); err != nil {
+			return err
+		}
+
+		for _, nft := range c.NFTs {
+			if nft.GetOwner().Empty() {
+				return sdkerrors.Wrap(sdkerrors.ErrInvalidAddress, "missing owner")
+			}
+
+			if err := ValidateTokenID(nft.GetID()); err != nil {
+				return err
+			}
+
+			if err := ValidateTokenURI(nft.GetURI()); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

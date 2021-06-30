@@ -6,38 +6,71 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
-// QueryCollectionParams defines the params for queries:
-// - 'custom/nft/supply'
-// - 'custom/nft/collection'
+// query endpoints supported by the NFT Querier
+const (
+	QuerySupply     = "supply"
+	QueryOwner      = "owner"
+	QueryCollection = "collection"
+	QueryDenoms     = "denoms"
+	QueryDenom      = "denom"
+	QueryNFT        = "nft"
+)
+
+// QuerySupplyParams defines the params for queries:
+type QuerySupplyParams struct {
+	Denom string
+	Owner sdk.AccAddress
+}
+
+// NewQuerySupplyParams creates a new instance of QuerySupplyParams
+func NewQuerySupplyParams(denom string, owner sdk.AccAddress) QuerySupplyParams {
+	return QuerySupplyParams{
+		Denom: denom,
+		Owner: owner,
+	}
+}
+
+// Bytes exports the Denom as bytes
+func (q QuerySupplyParams) Bytes() []byte {
+	return []byte(q.Denom)
+}
+
+// QueryOwnerParams defines the params for queries:
+type QueryOwnerParams struct {
+	Denom string
+	Owner sdk.AccAddress
+}
+
+// NewQuerySupplyParams creates a new instance of QuerySupplyParams
+func NewQueryOwnerParams(denom string, owner sdk.AccAddress) QueryOwnerParams {
+	return QueryOwnerParams{
+		Denom: denom,
+		Owner: owner,
+	}
+}
+
+// QuerySupplyParams defines the params for queries:
 type QueryCollectionParams struct {
 	Denom string
 }
 
-// NewQueryCollectionParams creates a new instance of QuerySupplyParams
+// NewQueryCollectionParams creates a new instance of QueryCollectionParams
 func NewQueryCollectionParams(denom string) QueryCollectionParams {
-	return QueryCollectionParams{Denom: denom}
-}
-
-// Bytes exports the Denom as bytes
-func (q QueryCollectionParams) Bytes() []byte {
-	return []byte(q.Denom)
-}
-
-// QueryBalanceParams params for query 'custom/nfts/balance'
-type QueryBalanceParams struct {
-	Owner sdk.AccAddress
-	Denom string // optional
-}
-
-// NewQueryBalanceParams creates a new instance of QuerySupplyParams
-func NewQueryBalanceParams(owner sdk.AccAddress, denom ...string) QueryBalanceParams {
-	if len(denom) > 0 {
-		return QueryBalanceParams{
-			Owner: owner,
-			Denom: denom[0],
-		}
+	return QueryCollectionParams{
+		Denom: denom,
 	}
-	return QueryBalanceParams{Owner: owner}
+}
+
+// QueryDenomParams defines the params for queries:
+type QueryDenomParams struct {
+	ID string
+}
+
+// NewQueryDenomParams creates a new instance of QueryDenomParams
+func NewQueryDenomParams(id string) QueryDenomParams {
+	return QueryDenomParams{
+		ID: id,
+	}
 }
 
 // QueryNFTParams params for query 'custom/nfts/nft'

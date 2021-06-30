@@ -1,75 +1,90 @@
 package keeper
 
 import (
-	"fmt"
-	"strconv"
-
-	sdk "github.com/cosmos/cosmos-sdk/types"
-	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
-	"github.com/zebi/nft/x/nft/types"
+	"encoding/binary"
 
 	abci "github.com/tendermint/tendermint/abci/types"
-)
 
-// query endpoints supported by the NFT Querier
-const (
-	QuerySupply       = "supply"
-	QueryOwner        = "owner"
-	QueryOwnerByDenom = "ownerByDenom"
-	QueryCollection   = "collection"
-	QueryDenoms       = "denoms"
-	QueryNFT          = "nft"
+	"github.com/cosmos/cosmos-sdk/codec"
+	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
+
+	"github.com/zebi/cric/x/nft/types"
 )
 
 // NewQuerier is the module level router for state queries
-func NewQuerier(k Keeper) sdk.Querier {
+func NewQuerier(k Keeper, legacyQuerierCdc *codec.LegacyAmino) sdk.Querier {
 	return func(ctx sdk.Context, path []string, req abci.RequestQuery) (res []byte, err error) {
 		switch path[0] {
-		case QuerySupply:
-			return querySupply(ctx, path[1:], req, k)
-		case QueryOwner:
-			return queryOwner(ctx, path[1:], req, k)
-		case QueryOwnerByDenom:
-			return queryOwnerByDenom(ctx, path[1:], req, k)
-		case QueryCollection:
-			return queryCollection(ctx, path[1:], req, k)
-		case QueryDenoms:
-			return queryDenoms(ctx, path[1:], req, k)
-		case QueryNFT:
-			return queryNFT(ctx, path[1:], req, k)
+		case types.QuerySupply:
+			return querySupply(ctx, req, k, legacyQuerierCdc)
+		case types.QueryOwner:
+			return queryOwner(ctx, req, k, legacyQuerierCdc)
+		case types.QueryCollection:
+			return queryCollection(ctx, req, k, legacyQuerierCdc)
+		case types.QueryDenom:
+			return queryDenom(ctx, req, k, legacyQuerierCdc)
+		case types.QueryDenoms:
+			return queryDenoms(ctx, req, k, legacyQuerierCdc)
+		case types.QueryNFT:
+			return queryNFT(ctx, req, k, legacyQuerierCdc)
 		default:
-			return nil, sdkerrors.Wrap(sdkerrors.ErrUnknownRequest, "unknown nft query endpoint")
+			return nil, sdkerrors.Wrapf(sdkerrors.ErrUnknownRequest, "unknown query path: %s", path[0])
 		}
 	}
 }
 
-func querySupply(ctx sdk.Context, path []string, req abci.RequestQuery, k Keeper) ([]byte, error) {
+func querySupply(ctx sdk.Context, req abci.RequestQuery, k Keeper, legacyQuerierCdc *codec.LegacyAmino) ([]byte, error) {
+	var params types.QuerySupplyParams
+
+	err := legacyQuerierCdc.UnmarshalJSON(req.Data, &params)
+	if err != nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONUnmarshal, err.Error())
+	}
+
+	var supply uint64
+	if params.Owner.Empty() && len(params.Denom) > 0 {
+		supply = k.GetTotalSupply(ctx, params.Denom)
+	} else {
+		supply = k.GetTotalSupplyOfOwner(ctx, params.Denom, params.Owner)
+	}
+
+	bz := make([]byte, 8)
+	binary.LittleEndian.PutUint64(bz, supply)
+	return bz, nil
+}
+
+func queryOwner(ctx sdk.Context, req abci.RequestQuery, k Keeper, legacyQuerierCdc *codec.LegacyAmino) ([]byte, error) {
+	var params types.QueryOwnerParams
+
+	err := legacyQuerierCdc.UnmarshalJSON(req.Data, &params)
+	if err != nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONUnmarshal, err.Error())
+	}
+
+	owner := k.GetOwner(ctx, params.Owner, params.Denom)
+	bz, err := codec.MarshalJSONIndent(legacyQuerierCdc, owner)
+	if err != nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONMarshal, err.Error())
+	}
+
+	return bz, nil
+}
+
+func queryCollection(ctx sdk.Context, req abci.RequestQuery, k Keeper, legacyQuerierCdc *codec.LegacyAmino) ([]byte, error) {
 	var params types.QueryCollectionParams
 
-	err := types.ModuleCdc.UnmarshalJSON(req.Data, &params)
+	err := legacyQuerierCdc.UnmarshalJSON(req.Data, &params)
 	if err != nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrUnknownRequest, fmt.Sprintf("incorrectly formatted request data %v", err.Error()))
+		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONUnmarshal, err.Error())
 	}
 
-	collection, found := k.GetCollection(ctx, params.Denom)
-	if !found {
-		return nil, sdkerrors.Wrap(types.ErrUnknownCollection, fmt.Sprintf("unknown denom %s", params.Denom))
-	}
-
-	bz := []byte(strconv.Itoa(collection.Supply()))
-	return bz, nil
-}
-
-func queryOwner(ctx sdk.Context, path []string, req abci.RequestQuery, k Keeper) ([]byte, error) {
-	var params types.QueryBalanceParams
-
-	err := types.ModuleCdc.UnmarshalJSON(req.Data, &params)
+	collection, err := k.GetCollection(ctx, params.Denom)
 	if err != nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrUnknownRequest, err.Error())
+		return nil, err
 	}
 
-	owner := k.GetOwner(ctx, params.Owner)
-	bz, err := types.ModuleCdc.MarshalJSON(owner)
+	bz, err := codec.MarshalJSONIndent(legacyQuerierCdc, collection)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONMarshal, err.Error())
 	}
@@ -77,21 +92,16 @@ func queryOwner(ctx sdk.Context, path []string, req abci.RequestQuery, k Keeper)
 	return bz, nil
 }
 
-func queryOwnerByDenom(ctx sdk.Context, path []string, req abci.RequestQuery, k Keeper) ([]byte, error) {
-	var params types.QueryBalanceParams
+func queryDenom(ctx sdk.Context, req abci.RequestQuery, k Keeper, legacyQuerierCdc *codec.LegacyAmino) ([]byte, error) {
+	var params types.QueryDenomParams
 
-	err := types.ModuleCdc.UnmarshalJSON(req.Data, &params)
-	if err != nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrUnknownRequest, err.Error())
+	if err := legacyQuerierCdc.UnmarshalJSON(req.Data, &params); err != nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONUnmarshal, err.Error())
 	}
 
-	var owner types.Owner
+	denom, _ := k.GetDenom(ctx, params.ID)
 
-	idCollection, _ := k.GetOwnerByDenom(ctx, params.Owner, params.Denom)
-	owner.Address = params.Owner
-	owner.IDCollections = append(owner.IDCollections, idCollection).Sort()
-
-	bz, err := types.ModuleCdc.MarshalJSON(owner)
+	bz, err := codec.MarshalJSONIndent(legacyQuerierCdc, denom)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONMarshal, err.Error())
 	}
@@ -99,33 +109,10 @@ func queryOwnerByDenom(ctx sdk.Context, path []string, req abci.RequestQuery, k 
 	return bz, nil
 }
 
-func queryCollection(ctx sdk.Context, path []string, req abci.RequestQuery, k Keeper) ([]byte, error) {
-	var params types.QueryCollectionParams
-
-	err := types.ModuleCdc.UnmarshalJSON(req.Data, &params)
-	if err != nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrUnknownRequest, err.Error())
-	}
-
-	collection, found := k.GetCollection(ctx, params.Denom)
-	if !found {
-		return nil, sdkerrors.Wrap(types.ErrUnknownCollection, fmt.Sprintf("unknown denom %s", params.Denom))
-	}
-
-	// use Collections custom JSON to make the denom the key of the object
-	collections := types.NewCollections(collection)
-	bz, err := types.ModuleCdc.MarshalJSON(collections)
-	if err != nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONMarshal, err.Error())
-	}
-
-	return bz, nil
-}
-
-func queryDenoms(ctx sdk.Context, path []string, req abci.RequestQuery, k Keeper) ([]byte, error) {
+func queryDenoms(ctx sdk.Context, req abci.RequestQuery, k Keeper, legacyQuerierCdc *codec.LegacyAmino) ([]byte, error) {
 	denoms := k.GetDenoms(ctx)
 
-	bz, err := types.ModuleCdc.MarshalJSON(denoms)
+	bz, err := codec.MarshalJSONIndent(legacyQuerierCdc, denoms)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONMarshal, err.Error())
 	}
@@ -133,20 +120,19 @@ func queryDenoms(ctx sdk.Context, path []string, req abci.RequestQuery, k Keeper
 	return bz, nil
 }
 
-func queryNFT(ctx sdk.Context, path []string, req abci.RequestQuery, k Keeper) ([]byte, error) {
+func queryNFT(ctx sdk.Context, req abci.RequestQuery, k Keeper, legacyQuerierCdc *codec.LegacyAmino) ([]byte, error) {
 	var params types.QueryNFTParams
 
-	err := types.ModuleCdc.UnmarshalJSON(req.Data, &params)
-	if err != nil {
-		return nil, sdkerrors.Wrap(sdkerrors.ErrUnknownRequest, err.Error())
+	if err := legacyQuerierCdc.UnmarshalJSON(req.Data, &params); err != nil {
+		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONUnmarshal, err.Error())
 	}
 
 	nft, err := k.GetNFT(ctx, params.Denom, params.TokenID)
 	if err != nil {
-		return nil, sdkerrors.Wrap(types.ErrUnknownNFT, fmt.Sprintf("invalid NFT #%s from collection %s", params.TokenID, params.Denom))
+		return nil, sdkerrors.Wrapf(types.ErrUnknownNFT, "invalid NFT %s from collection %s", params.TokenID, params.Denom)
 	}
 
-	bz, err := types.ModuleCdc.MarshalJSON(nft)
+	bz, err := codec.MarshalJSONIndent(legacyQuerierCdc, nft)
 	if err != nil {
 		return nil, sdkerrors.Wrap(sdkerrors.ErrJSONMarshal, err.Error())
 	}

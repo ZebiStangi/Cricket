@@ -1,36 +1,20 @@
-// package types
-
-// import (
-// 	sdk "github.com/cosmos/cosmos-sdk/types"
-// 	"github.com/cosmos/cosmos-sdk/x/params"
-// )
-
-// // ParamSubspace defines the expected Subspace interfacace
-// type ParamSubspace interface {
-// 	WithKeyTable(table params.KeyTable) params.Subspace
-// 	Get(ctx sdk.Context, key []byte, ptr interface{})
-// 	GetParamSet(ctx sdk.Context, ps params.ParamSet)
-// 	SetParamSet(ctx sdk.Context, ps params.ParamSet)
-// }
-
-// /*
-// When a module wishes to interact with another module, it is good practice to define what it will use
-// as an interface so the module cannot use things that are not permitted.
-// TODO: Create interfaces of what you expect the other keepers to have to be able to use this module.
-// type BankKeeper interface {
-// 	SubtractCoins(ctx sdk.Context, addr sdk.AccAddress, amt sdk.Coins) (sdk.Coins, error)
-// 	SendCoins(ctx sdk.Context, fromAddr sdk.AccAddress, toAddr sdk.AccAddress, amt sdk.Coins) error
-// }
-// */
-
 package types
 
 import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
-	authexported "github.com/cosmos/cosmos-sdk/x/auth/exported"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 )
 
-// AccountKeeper defines the expected account keeper (noalias)
+// AccountKeeper defines the expected account keeper for query account
 type AccountKeeper interface {
-	GetAccount(ctx sdk.Context, addr sdk.AccAddress) authexported.Account
+	GetAccount(ctx sdk.Context, addr sdk.AccAddress) authtypes.AccountI
+}
+
+// BankKeeper defines the expected interface needed to retrieve account balances.
+type BankKeeper interface {
+	GetAllBalances(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins
+	GetBalance(ctx sdk.Context, addr sdk.AccAddress, denom string) sdk.Coin
+	SetBalances(ctx sdk.Context, addr sdk.AccAddress, balances sdk.Coins) error
+	LockedCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins
+	SpendableCoins(ctx sdk.Context, addr sdk.AccAddress) sdk.Coins
 }
